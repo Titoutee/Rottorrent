@@ -1,10 +1,12 @@
-use serde::{self, Deserialize, Deserializer};
-use serde_bencode;
-use std::env;
-use std::fmt;
 use serde::de::{self, Visitor};
+use serde::{self, Deserialize, Deserializer, Serialize, Serializer};
+use serde_bencode;
+use sha1::{self, Digest, Sha1};
+use std::{env, fmt};
 
-#[derive(Deserialize, Clone, Debug)]
+mod decode;
+
+#[derive(Deserialize, Clone, Debug, Serialize)]
 struct Torrent {
     //#[serde(with = "serde_bytes")]
     announce: String,
@@ -30,10 +32,16 @@ impl<'de> Visitor<'de> for HashesVisitor {
             return Err(E::custom(format!("length is {}", value.len())));
         }
 
-        let values = Vec::with_capacity(value.len()/20);
-        Ok(Hashes(values.chunks_exact(20).map(|slice| {
-            slice.try_into().expect("Conversion error from chunk to serde value")
-        }).collect()))
+        Ok(Hashes(
+            value
+                .chunks_exact(20)
+                .map(|slice| {
+                    slice
+                        .try_into()
+                        .expect("Conversion error from chunk to serde value")
+                })
+                .collect(),
+        ))
     }
 }
 
@@ -46,7 +54,17 @@ impl<'de> Deserialize<'de> for Hashes {
     }
 }
 
-#[derive(Deserialize, Clone, Debug)]
+impl Serialize for Hashes {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let single_slice = self.0.concat();
+        serializer.serialize_bytes(&single_slice)
+    }
+}
+
+#[derive(Deserialize, Clone, Debug, Serialize)]
 struct Info {
     name: String,
 
@@ -67,94 +85,22 @@ struct Info {
     keys: Keys,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug, Serialize)]
 #[serde(untagged)]
 enum Keys {
     SingleFile { length: usize },
-    MultiFile { file: File}
+    MultiFile { file: File },
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug, Serialize)]
 struct File {
     length: usize,
-
     path: Vec<String>,
 }
 
-fn decode_bencoded_value(encoded_value: &str) -> (serde_json::Value, &str) {
-    match encoded_value.chars().next() {
-        Some('i') => {
-            if let Some((n, rest)) =
-                encoded_value
-                    .split_at(1)
-                    .1
-                    .split_once('e')
-                    .and_then(|(digits, rest)| {
-                        let n = digits.parse::<i64>().ok()?;
-
-                        Some((n, rest))
-                    })
-            {
-                return (n.into(), rest);
-            }
-        }
-
-        Some('l') => {
-            let mut values = Vec::new();
-
-            let mut rest = encoded_value.split_at(1).1;
-
-            while !rest.is_empty() && !rest.starts_with('e') {
-                let (v, remainder) = decode_bencoded_value(rest);
-
-                values.push(v);
-
-                rest = remainder;
-            }
-
-            return (values.into(), &rest[1..]);
-        }
-
-        Some('d') => {
-            let mut dict = serde_json::Map::new();
-
-            let mut rest = encoded_value.split_at(1).1;
-
-            while !rest.is_empty() && !rest.starts_with('e') {
-                let (k, remainder) = decode_bencoded_value(rest);
-
-                let k = match k {
-                    serde_json::Value::String(k) => k,
-
-                    k => {
-                        panic!("dict keys must be strings, not {k:?}");
-                    }
-                };
-
-                let (v, remainder) = decode_bencoded_value(remainder);
-
-                dict.insert(k, v);
-
-                rest = remainder;
-            }
-
-            return (dict.into(), &rest[1..]);
-        }
-
-        Some('0'..='9') => {
-            if let Some((len, rest)) = encoded_value.split_once(':') {
-                if let Ok(len) = len.parse::<usize>() {
-                    return (rest[..len].to_string().into(), &rest[len..]);
-                }
-            }
-        }
-
-        _ => {}
-    }
-
-    panic!("Unhandled encoded value: {}", encoded_value);
+fn encode_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{:02x}", byte)).collect()
 }
-
 
 fn main() -> anyhow::Result<(), ()> {
     let args: Vec<String> = env::args().collect();
@@ -162,18 +108,28 @@ fn main() -> anyhow::Result<(), ()> {
 
     if command == "decode" {
         let encoded = &args[2];
-        let value = decode_bencoded_value(encoded).0;
+        let value = decode::decode_bencoded_value(&encoded).0;
         println!("{value}");
     } else if command == "info" {
         let path = args[2].as_str();
         let content = std::fs::read(path).expect("Content reading error");
         let torrent: Torrent = serde_bencode::from_bytes(&content).expect("Deserializing error");
-        println!("Tracker URL: {}", torrent.announce);
+
+        let info_encoded = serde_bencode::to_bytes(&torrent.info).expect("re-encode info section");
+
+        let mut hasher = Sha1::new();
+
+        hasher.update(&info_encoded);
+
+        let info_hash = hasher.finalize();
+
+        println!("Info Hash: {}", hex::encode(&info_hash));
         if let Keys::SingleFile { length } = torrent.info.keys {
             println!("Length: {}", length);
         } else {
             unimplemented!();
         }
+        println!("Tracker: {}", torrent.announce);
     } else {
         eprintln!("unknown command: {}", args[1]);
     }
