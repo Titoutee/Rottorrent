@@ -56,19 +56,3 @@ impl Serialize for Hashes {
         serializer.serialize_bytes(&single_slice)
     }
 }
-
-pub fn hashing(bytes: &[u8]) -> String {
-    let mut hasher = Sha1::new();
-    hasher.update(bytes);
-    hex::encode(&hasher.finalize())
-}
-
-pub fn mul_hashing(bytes_mul: Vec<&[u8]>) -> String {
-    let mut hasher = Sha1::new();
-    let mut result = String::new();
-    for bytes in bytes_mul {
-        hasher.update(bytes);
-        result.push_str(&format!("{}\n", &hex::encode(&hasher.clone().finalize())));
-    }
-    result
-}
