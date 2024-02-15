@@ -1,5 +1,7 @@
 use peers::Peers;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
+
+pub const PEER_ID: &'static str = "00112233445566778899"; // This peer_id is artificial, it is used for getting the peer_id's of other peers during handshake.
 
 #[derive(Debug, Serialize)]
 pub struct TrackerSend {
@@ -16,6 +18,27 @@ pub struct TrackerSend {
 pub struct TrackerResponse {
     pub interval: usize,
     pub peers: Peers,
+}
+
+#[repr(C)] // Consider a HandShake instance as a byte array for easier writing to peer via TCP connection
+pub struct HandShake {
+    pub len: u8,
+    pub bittorrent: [u8; 19],
+    pub reserved: [u8; 8],
+    pub sha_hash: [u8; 20],
+    pub peer_id: [u8; 20],
+}
+
+impl HandShake {
+    pub fn new(hash: [u8; 20], peer_id: [u8; 20]) -> Self {
+        Self {
+            len: 19,
+            bittorrent: *b"BitTorrent protocol",
+            reserved: [0; 8],
+            sha_hash: hash,
+            peer_id,
+        }
+    }
 }
 
 pub mod peers {
