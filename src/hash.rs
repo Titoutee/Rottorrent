@@ -1,10 +1,16 @@
 use serde::de::{self, Visitor};
 use serde::{self, Deserialize, Deserializer, Serialize, Serializer};
-use sha1::{Digest, Sha1};
 use std::fmt;
 
 #[derive(Debug, Clone)]
 pub struct Hashes(pub Vec<[u8; 20]>);
+
+impl Hashes {
+    pub fn at(&self, index: usize) -> Option<&[u8; 20]> {
+        self.0.get(index)
+    }
+}
+
 struct HashesVisitor;
 
 impl<'de> Visitor<'de> for HashesVisitor {

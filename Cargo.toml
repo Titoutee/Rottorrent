@@ -8,6 +8,9 @@ edition = "2021"
 anyhow = "1.0.68"                                                  # error handling
 bytes = "1.3.0"                                                    # helps wrap responses from reqwest
 clap = { version = "4.0.32", features = ["derive"]}                # creating a cli
+futures-core = "0.3.30"
+futures-sink = "0.3.30"
+futures-util = { version = "0.3.30", features = ["sink"] }
 hex = "0.4.3"
 regex = "1"                                                        # for regular expressions
 reqwest = { version = "0.11.18", features = ["json", "blocking"] } # http requests
@@ -17,6 +20,9 @@ serde_bytes = "0.11.12"                                            # for dealing
 serde_json = "1.0.105"                                             # for json mangling
 serde_urlencoded = "0.7.1"                                         # for url encoding
 sha1 = "0.10.1"                                                    # hashing
+strum = "0.26.1"
+strum_macros = "0.26.1"
 tempfile = "3"                                                     # creating temporary directories
 thiserror = "1.0.38"                                               # error handling
 tokio = { version = "1.23.0", features = ["full"] }                # async http requests
+tokio-util = "0.7.10"
