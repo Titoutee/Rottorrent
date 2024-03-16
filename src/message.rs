@@ -77,7 +77,12 @@ impl Decoder for MessageFramer {
         // Use advance to modify src such that it no longer contains
         // this frame.
         let tag = src[4];
-        let data = src[5..4 + len_u - 1].to_vec();
+        let data = if src.len() > 5 {
+            src[5..4 + len_u - 1].to_vec()
+        } else {
+            vec![]
+        };
+
         src.advance(4 + len_u);
         Ok(Some(Message {
             length: len,

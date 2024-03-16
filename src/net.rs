@@ -40,9 +40,10 @@ impl HandShake {
         }
     }
 
+    /// A Handshake as a mut byte slice
     pub fn as_bytes_mut(&mut self) -> &mut [u8] {
-        let bytes = self as *mut Self as *mut [u8; std::mem::size_of::<HandShake>()]; // Raw pointer
-        let bytes: &mut [u8; std::mem::size_of::<HandShake>()] = unsafe { &mut *bytes }; // Not a raw pointer anymore
+        let bytes = self as *mut Self as *mut [u8; std::mem::size_of::<Self>()]; // Raw pointer, pointing to an array of bytes (handshake)
+        let bytes: &mut [u8; std::mem::size_of::<Self>()] = unsafe { &mut *bytes }; // Back to reference, for safety reasons
         bytes
     }
 }
@@ -75,9 +76,29 @@ impl Request {
     }
 
     pub fn as_bytes_mut(&mut self) -> &mut [u8] {
-        let bytes = self as *mut Self as *mut [u8; std::mem::size_of::<HandShake>()]; // Raw pointer
-        let bytes: &mut [u8; std::mem::size_of::<HandShake>()] = unsafe { &mut *bytes }; // Not a raw pointer anymore
+        let bytes = self as *mut Self as *mut [u8; std::mem::size_of::<Self>()]; // Raw pointer
+        let bytes: &mut [u8; std::mem::size_of::<Self>()] = unsafe { &mut *bytes }; // Not a raw pointer anymore
         bytes
+    }
+}
+
+pub struct Piece {
+    index: [u8; 4],
+    begin: [u8; 4],
+    block: [u8],
+}
+
+impl Piece {
+    pub fn index(&self) -> u32 {
+        u32::from_be_bytes(self.index)
+    }
+
+    pub fn begin(&self) -> u32 {
+        u32::from_be_bytes(self.begin)
+    }
+
+    pub fn block(&self) -> &[u8] {
+        &self.block
     }
 }
 
@@ -134,6 +155,7 @@ pub mod peers {
     }
 }
 
+///
 pub fn url_encode(t: &[u8; 20]) -> String {
     let mut encoded = String::with_capacity(3 * t.len());
     for &byte in t {
