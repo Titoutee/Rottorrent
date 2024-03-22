@@ -46,7 +46,7 @@ enum Command {
         #[arg(short)]
         output: PathBuf, 
         torrent: PathBuf, 
-        piece: u32,
+        piece: usize,
     },
 }
 
@@ -137,6 +137,7 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 unimplemented!();
             }
+            println!("{}", torrent.info.piece_length);
 
             println!("Piece Hashes:");
 
@@ -207,7 +208,7 @@ async fn main() -> anyhow::Result<()> {
             println!("Peer_id of handshake (hex): {}", hex::encode(handshake.peer_id));
         }
 
-        Command::DownloadPiece { output, torrent, piece } => {
+        Command::DownloadPiece { output, torrent, piece: piece_i} => {
             let content = std::fs::read(torrent).expect("Content reading error");
             let torrent: Torrent = serde_bencode::from_bytes(&content).expect("Deserializing error");
             let length = if let Keys::SingleFile { length } = torrent.info.keys {
@@ -215,7 +216,8 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 todo!();
             };
-
+            println!("Piece length {}", torrent.info.piece_length);
+            assert!(piece_i < torrent.info.pieces.0.len());
             let info_hash = torrent.info_hash();
             let tracker_send = TrackerSend {
                 peer_id: String::from(PEER_ID),
@@ -242,8 +244,8 @@ async fn main() -> anyhow::Result<()> {
 
             peer.write_all(handshake_bytes).await.context("writing handshake via TCP to peer")?;
             peer.read_exact(handshake_bytes).await.context("reading handshake")?;
+            
             assert!(handshake.len == 19);
-            //assert!(handshake.reserved == [0; 8]);
             assert!(&handshake.bittorrent == b"BitTorrent protocol");
             println!("Peer_id of handshake (hex): {}", hex::encode(handshake.peer_id));
 
@@ -268,24 +270,39 @@ async fn main() -> anyhow::Result<()> {
             assert!(unchoke.payload.is_empty()); // Should be the case if previous assertions were passed according to the protocol
 
             // #4: Send Request for all blocks of a file piece
-            let piece_hash = torrent.info.pieces.at(piece as usize).context("Access piece hash of corresponding piece")?;
-            let piece_size = if piece as usize == torrent.info.pieces.0.len() - 1 { // last block?
-                length % torrent.info.piece_length // the last piece may not be complete
+            let piece_hash = &torrent.info.pieces.0[piece_i];
+            let piece_size = if piece_i == torrent.info.pieces.0.len() + 1 {
+                let md = length % torrent.info.piece_length;
+                if md == 0 {
+                    torrent.info.piece_length
+                } else {
+                    md
+                }
             } else {
-                torrent.info.piece_length // complete piece 
+                torrent.info.piece_length
             };
+            println!("Calculated piece size: {}", piece_size);
 
-            let nblocks = usize::div_ceil(piece_size, BLOCK_MAX); // Ceil
+            let nblocks = usize::div_ceil(piece_size, BLOCK_MAX); // Ceil for the potentially truncated block
             eprintln!("{}", nblocks);
             let mut blocks: Vec<u8> = Vec::with_capacity(piece_size);
             for block_i in 0..nblocks {
                 let block_size = if block_i == nblocks - 1 {
-                    piece_size % BLOCK_MAX
+                    let md = piece_size % BLOCK_MAX;
+                    if md == 0 {
+                        BLOCK_MAX
+                    } else {
+                        md
+                    }
                 } else {
                     BLOCK_MAX
                 };
-                eprintln!("{}", piece_size);
-                let mut request = Request::new(piece, block_i as u32 * BLOCK_MAX as u32, block_size as u32);
+                eprintln!("block #{block_i} is {block_size}b");
+                let mut request = Request::new(
+                    piece_i as u32,
+                    (block_i * BLOCK_MAX) as u32,
+                    block_size as u32,
+                );
                 let request_bytes = request.as_bytes_mut();
                 peer.send(Message { length: (request_bytes.len()+1) as u32, tag: MessageTag::Request, payload: request_bytes.to_vec() }).await.context("Send block request")?;
                 // # Wait for a piece message
@@ -297,8 +314,8 @@ async fn main() -> anyhow::Result<()> {
                 let piece = unsafe {
                     &*piece
                 };
-
-                blocks.extend(piece.block().iter());
+                assert_eq!(piece.index() as usize, piece_i);
+                blocks.extend(piece.block());
             }
 
             assert_eq!(blocks.len(), piece_size);
@@ -310,8 +327,9 @@ async fn main() -> anyhow::Result<()> {
                 .try_into()
                 .expect("Supposed to be a GenericArray cast-able to [u8; 20]");
             assert_eq!(&hash, piece_hash);
+            tokio::fs::write(&output, blocks).await.context("write out downloaded piece")?;
+            println!("Piece {piece_i} downloaded to {}.", output.display());
         }
     }
-    
     Ok(())
 }

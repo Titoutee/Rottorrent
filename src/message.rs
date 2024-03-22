@@ -78,7 +78,7 @@ impl Decoder for MessageFramer {
         // this frame.
         let tag = src[4];
         let data = if src.len() > 5 {
-            src[5..4 + len_u - 1].to_vec()
+            src[5..4 + len_u].to_vec()
         } else {
             vec![]
         };
